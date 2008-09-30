@@ -1,0 +1,28 @@
+Cabal-Version: >= 1.2
+Name: h8
+Version: 0.1
+Synopsis: bindings to v8, Google's fast JavaScript engine
+Description:
+  FIXME
+Category: FIXME
+License: BSD3
+License-File: LICENSE
+Author: Evan Martin
+Maintainer: martine@danga.com
+Copyright: (c) 2008 Evan Martin <martine@danga.com>
+Homepage: FIXME
+Extra-Source-Files: test.hs, perf.hs
+Build-Type: Simple
+
+Library
+  Build-Depends: base, haskell98, bytestring
+  Exposed-Modules: V8
+  Other-Modules: C2HS
+  Extensions: ForeignFunctionInterface
+  Extra-Libraries: v8
+
+Executable test
+  Main-Is: Test.hs
+  Other-Modules: V8
+  Extra-Libraries: v8_g
+  Extra-Lib-Dirs: v8
