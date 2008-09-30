@@ -8,7 +8,8 @@ module V8 (
   valueToUtf8,
   objectTemplateNew,
   contextNew, contextEnter,
-  scriptCompile, scriptRun
+  scriptCompile, scriptRun,
+  TryCatch, withTryCatch, tryCatchException
 ) where
 
 -- {-# INCLUDE "v8c.h" #-}
@@ -84,6 +85,15 @@ contextNew template = do
 {# fun unsafe v8_context_exit as contextExit
     { withHandle `Handle Context' } -> `()' #}
 
+maybeHandle :: Handle t -> IO (Maybe (Handle t))
+maybeHandle handle = do
+  empty <- v8_handle_is_empty handle
+  if empty
+    then return Nothing
+    else return $ Just handle
+toMaybeHandle :: Ptr () -> IO (Maybe (Handle t))
+toMaybeHandle = maybeHandle . toHandle
+
 data Script = Script
 {# fun unsafe v8_script_compile
     { withHandle `Handle String' } -> `Handle Script' toHandle #}
@@ -91,25 +101,26 @@ scriptCompile :: String -> IO (Maybe (Handle Script))
 scriptCompile source = do
   source' <- newStringUtf8 source
   script <- v8_script_compile source'
-  empty <- v8_handle_is_empty script
-  if empty
-    then return Nothing
-    else return $ Just script
+  maybeHandle script
 
-{# fun unsafe v8_script_run
-    { withHandle `Handle Script' } -> `Handle ValueT' toHandle #}
-scriptRun script = do
-  result <- v8_script_run script
-  empty <- v8_handle_is_empty script
-  if empty
-    then return Nothing
-    else return $ Just result
+{# fun unsafe v8_script_run as scriptRun
+    { withHandle `Handle Script' } -> `Maybe (Handle ValueT)' toMaybeHandle* #}
 
 {# fun unsafe v8_handle_is_empty
     { withHandle `Handle t' } -> `Bool' #}
 
 {# fun unsafe v8_undefined
     { } -> `Handle ()' toHandle #}
+
+{# pointer *V8TryCatch as TryCatch newtype #}
+{# fun unsafe v8_try_catch_new
+    { } -> `TryCatch' id #}
+{# fun unsafe v8_try_catch_free
+    { id `TryCatch' } -> `()' #}
+{# fun unsafe v8_try_catch_exception as tryCatchException
+    { id `TryCatch' } -> `Maybe (Handle ValueT)' toMaybeHandle* #}
+withTryCatch :: (TryCatch -> IO b) -> IO b
+withTryCatch = bracket v8_try_catch_new v8_try_catch_free
 
 {# pointer *V8StringUtf8Value as StringUtf8Value newtype #}
 {# fun unsafe v8_string_utf8_value_new
