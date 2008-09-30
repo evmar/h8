@@ -109,7 +109,13 @@ scriptCompile source = do
 {# fun unsafe v8_handle_is_empty
     { withHandle `Handle t' } -> `Bool' #}
 
-{# fun unsafe v8_undefined
+{# fun pure unsafe v8_undefined as undefined
+    { } -> `Handle ()' toHandle #}
+{# fun pure unsafe v8_null as null
+    { } -> `Handle ()' toHandle #}
+{# fun pure unsafe v8_true as true
+    { } -> `Handle ()' toHandle #}
+{# fun pure unsafe v8_false as false
     { } -> `Handle ()' toHandle #}
 
 {# pointer *V8TryCatch as TryCatch newtype #}
