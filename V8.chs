@@ -12,7 +12,6 @@ module V8 (
   TryCatch, withTryCatch, tryCatchException
 ) where
 
--- {-# INCLUDE "v8c.h" #-}
 #include "/home/martine/projects/h8/v8/include/v8c.h"
 
 import C2HS
@@ -22,13 +21,6 @@ import Foreign.Ptr
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 
--- foreign import ccall unsafe
---   v8_set_flags_from_command_line :: Ptr CInt -> Ptr (Ptr CChar) -> CInt -> IO ()
--- {# fun unsafe v8_set_flags_from_command_line
---     {`Int', `Int'} -> `()' #}
-
-setFlagsFromCommandLine :: IO ()
-setFlagsFromCommandLine = return () -- v8_set_flags_from_command_line nullPtr nullPtr 0
 
 -- | All V8 objects are wrapped in an opaque Handle.  The type
 -- parameter t just helps with keeping different handle types
@@ -41,6 +33,18 @@ toHandle ptr = Handle (castPtr ptr)
 
 castHandle :: Handle a -> Handle b
 castHandle (Handle ptr) = Handle (castPtr ptr)
+
+maybeHandle :: Handle t -> IO (Maybe (Handle t))
+maybeHandle handle = do
+  empty <- v8_handle_is_empty handle
+  if empty
+    then return Nothing
+    else return $ Just handle
+toMaybeHandle :: Ptr () -> IO (Maybe (Handle t))
+toMaybeHandle = maybeHandle . toHandle
+
+{# fun unsafe v8_handle_is_empty
+    { withHandle `Handle t' } -> `Bool' #}
 
 data Value = Value
 -- | Represents V8 types that are subtypes of Value.
@@ -60,43 +64,6 @@ withHandleScope action =
 {# fun unsafe v8_handle_scope_free
     { id `HandleScope' } -> `()' #}
 
-{# fun unsafe v8_string_new_utf8 as newStringUtf8
-    { `String'& } -> `Handle String' toHandle #}
--- {# fun unsafe v8_string_length
---     { fromHandle `Handle' } -> `Int' #}
-
-data Context = Context
-data Template = Template
-data ObjectTemplate = ObjectTemplate
-class TemplateT a where
-  toTemplate :: Handle a -> Handle Template
-instance TemplateT Template where toTemplate = id
-instance TemplateT () where toTemplate = castHandle
-instance TemplateT ObjectTemplate where toTemplate = castHandle
-
-{# fun unsafe v8_object_template_new as objectTemplateNew
-    { } -> `Handle ObjectTemplate' toHandle #}
-
-{# fun unsafe v8_context_new
-    { id `Ptr ()', withHandle `Handle Template' }
-    -> `Handle Context' toHandle #}
-contextNew :: TemplateT t => Handle t -> IO (Handle Context)
-contextNew template = do
-  v8_context_new nullPtr (toTemplate template)
-{# fun unsafe v8_context_enter as contextEnter
-    { withHandle `Handle Context' } -> `()' #}
-{# fun unsafe v8_context_exit as contextExit
-    { withHandle `Handle Context' } -> `()' #}
-
-maybeHandle :: Handle t -> IO (Maybe (Handle t))
-maybeHandle handle = do
-  empty <- v8_handle_is_empty handle
-  if empty
-    then return Nothing
-    else return $ Just handle
-toMaybeHandle :: Ptr () -> IO (Maybe (Handle t))
-toMaybeHandle = maybeHandle . toHandle
-
 data Script = Script
 {# fun unsafe v8_script_compile
     { withHandle `Handle String' } -> `Handle Script' toHandle #}
@@ -109,27 +76,8 @@ scriptCompile source = do
 {# fun unsafe v8_script_run as scriptRun
     { withHandle `Handle Script' } -> `Maybe (Handle Value)' toMaybeHandle* #}
 
-{# fun unsafe v8_handle_is_empty
-    { withHandle `Handle t' } -> `Bool' #}
-
-{# fun pure unsafe v8_undefined as undefined
-    { } -> `Handle ()' toHandle #}
-{# fun pure unsafe v8_null as null
-    { } -> `Handle ()' toHandle #}
-{# fun pure unsafe v8_true as true
-    { } -> `Handle ()' toHandle #}
-{# fun pure unsafe v8_false as false
-    { } -> `Handle ()' toHandle #}
-
-{# pointer *V8TryCatch as TryCatch newtype #}
-{# fun unsafe v8_try_catch_new
-    { } -> `TryCatch' id #}
-{# fun unsafe v8_try_catch_free
-    { id `TryCatch' } -> `()' #}
-{# fun unsafe v8_try_catch_exception as tryCatchException
-    { id `TryCatch' } -> `Maybe (Handle Value)' toMaybeHandle* #}
-withTryCatch :: (TryCatch -> IO b) -> IO b
-withTryCatch = bracket v8_try_catch_new v8_try_catch_free
+{# fun unsafe v8_string_new_utf8 as newStringUtf8
+    { `String'& } -> `Handle String' toHandle #}
 
 {# pointer *V8StringUtf8Value as StringUtf8Value newtype #}
 {# fun unsafe v8_string_utf8_value_new
@@ -151,4 +99,57 @@ valueToUtf8 value = bracket init free read where
     chars <- v8_string_utf8_value_chars val
     BSI.create len $ \buf ->
       BSI.memcpy buf (castPtr chars) (fromIntegral len)
+
+data Template = Template
+class TemplateT a where
+  toTemplate :: Handle a -> Handle Template
+instance TemplateT Template where toTemplate = id
+instance TemplateT () where toTemplate = castHandle
+
+{# fun unsafe v8_template_set
+    { withHandle `Handle Template', withHandle `Handle String',
+      withHandle `Handle Value' } -> `()' #}
+
+{# pointer *V8Arguments as Arguments newtype #}
+{# fun unsafe v8_arguments_length
+    { id `Arguments' } -> `Int' #}
+{# fun unsafe v8_arguments_get
+    { id `Arguments', `Int' } -> `Maybe (Handle Value)' toMaybeHandle* #}
+
+data ObjectTemplate = ObjectTemplate
+instance TemplateT ObjectTemplate where toTemplate = castHandle
+{# fun unsafe v8_object_template_new as objectTemplateNew
+    { } -> `Handle ObjectTemplate' toHandle #}
+
+{# fun pure unsafe v8_undefined as undefined
+    { } -> `Handle ()' toHandle #}
+{# fun pure unsafe v8_null as null
+    { } -> `Handle ()' toHandle #}
+{# fun pure unsafe v8_true as true
+    { } -> `Handle ()' toHandle #}
+{# fun pure unsafe v8_false as false
+    { } -> `Handle ()' toHandle #}
+
+{# pointer *V8TryCatch as TryCatch newtype #}
+{# fun unsafe v8_try_catch_new
+    { } -> `TryCatch' id #}
+{# fun unsafe v8_try_catch_free
+    { id `TryCatch' } -> `()' #}
+{# fun unsafe v8_try_catch_exception as tryCatchException
+    { id `TryCatch' } -> `Maybe (Handle Value)' toMaybeHandle* #}
+withTryCatch :: (TryCatch -> IO b) -> IO b
+withTryCatch = bracket v8_try_catch_new v8_try_catch_free
+
+data Context = Context
+{# fun unsafe v8_context_new
+    { id `Ptr ()', withHandle `Handle Template' }
+    -> `Handle Context' toHandle #}
+contextNew :: TemplateT t => Handle t -> IO (Handle Context)
+contextNew template = do
+  v8_context_new nullPtr (toTemplate template)
+{# fun unsafe v8_context_enter as contextEnter
+    { withHandle `Handle Context' } -> `()' #}
+{# fun unsafe v8_context_exit as contextExit
+    { withHandle `Handle Context' } -> `()' #}
+
 
