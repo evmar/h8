@@ -3,10 +3,12 @@
 
 module V8 (
   Handle, Value,
-  V8Value,
   withHandleScope,
   newStringUtf8,
-  valueToUtf8
+  valueToUtf8,
+  objectTemplateNew,
+  contextNew, contextEnter,
+  scriptCompile, scriptRun
 ) where
 
 -- {-# INCLUDE "v8c.h" #-}
@@ -27,7 +29,7 @@ import qualified Data.ByteString.Internal as BSI
 setFlagsFromCommandLine :: IO ()
 setFlagsFromCommandLine = return () -- v8_set_flags_from_command_line nullPtr nullPtr 0
 
-data Value = Value
+data ValueT = ValueT
 newtype Handle t = Handle (Ptr (Handle t))
 withHandle :: Handle t -> Ptr ()
 withHandle (Handle ptr) = castPtr ptr
@@ -38,12 +40,10 @@ castHandle :: Handle a -> Handle b
 castHandle (Handle ptr) = Handle (castPtr ptr)
 
 -- | Represents V8 types that are subtypes of Value.
-class V8Value a where
-  toV8Value :: Handle a -> Handle Value
-instance V8Value Value  where toV8Value = id
-instance V8Value String where toV8Value = castHandle
-withValueHandle :: V8Value v => Handle v -> Ptr ()
-withValueHandle = withHandle . toV8Value
+class Value a where
+  toValue :: Handle a -> Handle ValueT
+instance Value ValueT  where toValue = id
+instance Value String where toValue = castHandle
 
 {# pointer *V8HandleScope as HandleScope newtype #}
 -- | @withHandleScope action@ runs @action@ within a new HandleScope.
@@ -62,18 +62,58 @@ withHandleScope action =
 --     { fromHandle `Handle' } -> `Int' #}
 
 data Context = Context
-data Template = Template
+data TemplateT = TemplateT
+data ObjectTemplateT = ObjectTemplateT
+class Template a where
+  toTemplate :: Handle a -> Handle TemplateT
+instance Template TemplateT where toTemplate = id
+instance Template () where toTemplate = castHandle
+instance Template ObjectTemplateT where toTemplate = castHandle
+
+{# fun unsafe v8_object_template_new as objectTemplateNew
+    { } -> `Handle ObjectTemplateT' toHandle #}
+
 {# fun unsafe v8_context_new
-    { id `Ptr ()', withHandle `Handle Template' } -> `Handle Context' toHandle #}
-{# fun unsafe v8_context_enter
+    { id `Ptr ()', withHandle `Handle TemplateT' }
+    -> `Handle Context' toHandle #}
+contextNew :: Template t => Handle t -> IO (Handle Context)
+contextNew template = do
+  v8_context_new nullPtr (toTemplate template)
+{# fun unsafe v8_context_enter as contextEnter
     { withHandle `Handle Context' } -> `()' #}
-{# fun unsafe v8_context_exit
+{# fun unsafe v8_context_exit as contextExit
     { withHandle `Handle Context' } -> `()' #}
 
+data Script = Script
+{# fun unsafe v8_script_compile
+    { withHandle `Handle String' } -> `Handle Script' toHandle #}
+scriptCompile :: String -> IO (Maybe (Handle Script))
+scriptCompile source = do
+  source' <- newStringUtf8 source
+  script <- v8_script_compile source'
+  empty <- v8_handle_is_empty script
+  if empty
+    then return Nothing
+    else return $ Just script
+
+{# fun unsafe v8_script_run
+    { withHandle `Handle Script' } -> `Handle ValueT' toHandle #}
+scriptRun script = do
+  result <- v8_script_run script
+  empty <- v8_handle_is_empty script
+  if empty
+    then return Nothing
+    else return $ Just result
+
+{# fun unsafe v8_handle_is_empty
+    { withHandle `Handle t' } -> `Bool' #}
+
+{# fun unsafe v8_undefined
+    { } -> `Handle ()' toHandle #}
 
 {# pointer *V8StringUtf8Value as StringUtf8Value newtype #}
 {# fun unsafe v8_string_utf8_value_new
-    { withHandle `Handle Value' } -> `StringUtf8Value' id #}
+    { withHandle `Handle ValueT' } -> `StringUtf8Value' id #}
 {# fun unsafe v8_string_utf8_value_free
     { id `StringUtf8Value' } -> `()' #}
 {# fun unsafe v8_string_utf8_value_length
@@ -81,10 +121,10 @@ data Template = Template
 {# fun unsafe v8_string_utf8_value_chars
     { id `StringUtf8Value' } -> `CString' id #}
 
--- | Convert a 'V8Value' to a UTF-8 ByteString.
-valueToUtf8 :: V8Value v => Handle v -> IO BS.ByteString
+-- | Convert a 'Value' to a UTF-8 ByteString.
+valueToUtf8 :: Value v => Handle v -> IO BS.ByteString
 valueToUtf8 value = bracket init free read where
-  init = v8_string_utf8_value_new (toV8Value value)
+  init = v8_string_utf8_value_new (toValue value)
   free = v8_string_utf8_value_free
   read val = do
     len <- v8_string_utf8_value_length val
