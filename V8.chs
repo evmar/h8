@@ -10,7 +10,8 @@ module V8 (
   valueToUtf8,
   templateSet,
   objectTemplateNew,
-  Arguments, functionTemplateNew,
+  Arguments, argumentsLength, argumentsGet,
+  functionTemplateNew,
   undefined, null, true, false,
   contextNew, contextEnter, contextExit,
   scriptCompile, scriptRun,
@@ -129,9 +130,9 @@ templateSet tmpl name value = do
   v8_template_set (toTemplate tmpl) str (toData value)
 
 {# pointer *V8Arguments as Arguments newtype #}
-{# fun unsafe v8_arguments_length
+{# fun unsafe v8_arguments_length as argumentsLength
     { id `Arguments' } -> `Int' #}
-{# fun unsafe v8_arguments_get
+{# fun unsafe v8_arguments_get as argumentsGet
     { id `Arguments', `Int' } -> `Maybe (Handle Value)' toMaybeHandle* #}
 
 data FunctionTemplate = FunctionTemplate

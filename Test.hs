@@ -1,23 +1,33 @@
 import qualified Data.ByteString as BS
 import qualified V8
+import Control.Monad
 import System.Environment
 
 printValue :: V8.Handle V8.Value -> IO ()
 printValue v = do
   str <- V8.valueToUtf8 v
-  BS.putStrLn str
+  BS.putStr str
 
 printError :: V8.TryCatch -> String -> IO ()
 printError trycatch msg = do
   putStr $ msg ++ ": "
   exn <- V8.tryCatchException trycatch
   case exn of
-    Just exn -> printValue exn
+    Just exn -> printValue exn >> putStrLn ""
     Nothing -> putStrLn "unknown exception"
 
 printCallback :: V8.Arguments -> IO (V8.Handle ())
 printCallback args = do
-  print "printcallback called"
+  argc <- V8.argumentsLength args
+  putStr "print("
+  forM_ [0..argc-1] $ \i -> do
+    arg <- V8.argumentsGet args i
+    case arg of
+      Just arg -> do
+        when (i > 0) $ putStr ", "
+        printValue arg
+      Nothing -> return ()
+  putStrLn ")"
   return V8.undefined
 
 main = do
@@ -40,6 +50,6 @@ main = do
           case result of
             Nothing -> printError trycatch "run error"
             Just result -> do
-              bs <- V8.valueToUtf8 result
-              BS.putStrLn bs
-
+              putStr " => "
+              printValue result
+              putStrLn ""
