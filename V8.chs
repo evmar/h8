@@ -13,7 +13,7 @@ module V8 (
   Arguments, argumentsLength, argumentsGet,
   functionTemplateNew,
   undefined, null, true, false,
-  contextNew, contextEnter, contextExit,
+  contextNew, contextEnter, contextExit, withContext,
   scriptCompile, scriptRun,
   TryCatch, withTryCatch, tryCatchException
 ) where
@@ -185,5 +185,10 @@ contextNew template = do
     { withHandle `Handle Context' } -> `()' #}
 {# fun unsafe v8_context_exit as contextExit
     { withHandle `Handle Context' } -> `()' #}
-
-
+withContext :: TemplateT t => Handle t -> IO a -> IO a
+withContext template action = do
+  context <- contextNew template
+  contextEnter context
+  result <- action
+  contextExit context
+  return result

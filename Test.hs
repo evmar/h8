@@ -39,17 +39,16 @@ main = do
     print_cb <- V8.functionTemplateNew printCallback
     global <- V8.objectTemplateNew
     V8.templateSet global "print" print_cb
-    context <- V8.contextNew global
-    V8.contextEnter context
-    V8.withTryCatch $ \trycatch -> do
-      script <- V8.scriptCompile code
-      case script of
-        Nothing -> printError trycatch "compile error"
-        Just script -> do
-          result <- V8.scriptRun script
-          case result of
-            Nothing -> printError trycatch "run error"
-            Just result -> do
-              putStr " => "
-              printValue result
-              putStrLn ""
+    V8.withContext global $ do
+      V8.withTryCatch $ \trycatch -> do
+        script <- V8.scriptCompile code
+        case script of
+          Nothing -> printError trycatch "compile error"
+          Just script -> do
+            result <- V8.scriptRun script
+            case result of
+              Nothing -> printError trycatch "run error"
+              Just result -> do
+                putStr " => "
+                printValue result
+                putStrLn ""
