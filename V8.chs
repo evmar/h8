@@ -1,12 +1,17 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module V8 (
   Handle, Value,
   withHandleScope,
   newStringUtf8,
   valueToUtf8,
+  templateSet,
   objectTemplateNew,
+  Arguments, functionTemplateNew,
+  undefined, null, true, false,
   contextNew, contextEnter, contextExit,
   scriptCompile, scriptRun,
   TryCatch, withTryCatch, tryCatchException
@@ -16,8 +21,10 @@ module V8 (
 
 import C2HS
 import Control.Exception
+import Control.Monad
 import Foreign.C
 import Foreign.Ptr
+import Prelude hiding (null, undefined)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Internal as BSI
 
@@ -73,7 +80,7 @@ scriptCompile source = do
   script <- v8_script_compile source'
   maybeHandle script
 
-{# fun unsafe v8_script_run as scriptRun
+{# fun v8_script_run as scriptRun
     { withHandle `Handle Script' } -> `Maybe (Handle Value)' toMaybeHandle* #}
 
 {# fun unsafe v8_string_new_utf8 as newStringUtf8
@@ -106,15 +113,41 @@ class TemplateT a where
 instance TemplateT Template where toTemplate = id
 instance TemplateT () where toTemplate = castHandle
 
+data Data = Data
+class DataT a where
+  toData :: Handle a -> Handle Data
+
+instance TemplateT a => DataT a where
+  toData = castHandle
+
 {# fun unsafe v8_template_set
     { withHandle `Handle Template', withHandle `Handle String',
-      withHandle `Handle Value' } -> `()' #}
+      withHandle `Handle Data' } -> `()' #}
+templateSet :: (TemplateT t, DataT d) => Handle t -> String -> Handle d -> IO ()
+templateSet tmpl name value = do
+  str <- newStringUtf8 name
+  v8_template_set (toTemplate tmpl) str (toData value)
 
 {# pointer *V8Arguments as Arguments newtype #}
 {# fun unsafe v8_arguments_length
     { id `Arguments' } -> `Int' #}
 {# fun unsafe v8_arguments_get
     { id `Arguments', `Int' } -> `Maybe (Handle Value)' toMaybeHandle* #}
+
+data FunctionTemplate = FunctionTemplate
+instance TemplateT FunctionTemplate where toTemplate = castHandle
+type InvocationCallback = Arguments -> IO (Ptr ())
+foreign import ccall "wrapper"
+  mkInvocationCallback :: InvocationCallback -> IO (FunPtr InvocationCallback)
+
+{# fun unsafe v8_function_template_new
+    { id `FunPtr InvocationCallback' } -> `Handle FunctionTemplate' toHandle #}
+functionTemplateNew :: (Arguments -> IO (Handle ()))
+                    -> IO (Handle FunctionTemplate)
+functionTemplateNew callback = do
+  ccallback <- mkInvocationCallback (liftM withHandle . callback)
+  -- XXX leaks ccallback.
+  v8_function_template_new ccallback
 
 data ObjectTemplate = ObjectTemplate
 instance TemplateT ObjectTemplate where toTemplate = castHandle
